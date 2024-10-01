@@ -1,0 +1,30 @@
+{
+  "name": "cordova-pdf-from-html",
+  "version": "1.0.0",
+  "description": "HTML to PDF for cordova.",
+  "cordova": {
+    "id": "cordova-pdf-from-html",
+    "platforms": [
+      "ios",
+      "android"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Fabianurrutia/cordova-pdf-from-html.git"
+  },
+  "keywords": [
+    "ecosystem:cordova",
+    "cordova-ios",
+    "cordova-android"
+  ],
+  "engines": {
+    "cordova": ">=3.4.0"
+  },
+  "author": "fabianurrutia",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Fabianurrutia/cordova-pdf-from-html/issues"
+  },
+  "homepage": "https://github.com/Fabianurrutia/cordova-pdf-from-html#readme"
+}
