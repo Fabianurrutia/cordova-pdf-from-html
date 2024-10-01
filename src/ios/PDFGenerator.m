@@ -97,59 +97,103 @@
     CGFloat pdfPageWidth = 595.0;  // A4 width in points
     CGFloat pdfPageHeight = 842.0; // A4 height in points
 
+    // Define padding (in points)
+    CGFloat padding = 50.0;
+
     // Get the content size of the web view
     CGSize contentSize = webView.scrollView.contentSize;
 
-    // Calculate scale factor to fit content to A4 width
-    CGFloat scaleFactor = pdfPageWidth / contentSize.width;
-    CGFloat scaledHeight = contentSize.height * scaleFactor;
+    // Log content size for debugging
+    NSLog(@"[createPDFFromWebView] Content Size - width: %f, height: %f", contentSize.width, contentSize.height);
 
-    // Set up the PDF page bounds with the scaled height
-    CGRect pdfPageBounds = CGRectMake(0, 0, pdfPageWidth, scaledHeight);
+    // Calculate the scale factor to fit the content width to the PDF page width (with padding)
+    CGFloat scaleFactor = (pdfPageWidth - 2 * padding) / contentSize.width;
 
-    WKSnapshotConfiguration *snapshotConfig = [[WKSnapshotConfiguration alloc] init];
-    snapshotConfig.rect = CGRectMake(0, 0, contentSize.width, contentSize.height);
+    // Calculate the total scaled height of the content
+    CGFloat scaledContentHeight = contentSize.height * scaleFactor;
 
-    [webView takeSnapshotWithConfiguration:snapshotConfig completionHandler:^(UIImage *snapshotImage, NSError *error) {
-        if (error) {
-            NSLog(@"[createPDFFromWebView] Error taking snapshot: %@", error.localizedDescription);
-            return;
-        }
+    // Calculate the number of pages required based on the scaled content height
+    NSInteger numberOfPages = ceil(scaledContentHeight / (pdfPageHeight - 2 * padding));
 
-        // Generate PDF from the snapshot image
-        NSMutableData *pdfData = [NSMutableData data];
-        UIGraphicsBeginPDFContextToData(pdfData, pdfPageBounds, nil);
-        UIGraphicsBeginPDFPageWithInfo(pdfPageBounds, nil);
+    // Log calculated values for debugging
+    NSLog(@"[createPDFFromWebView] Scale Factor: %f", scaleFactor);
+    NSLog(@"[createPDFFromWebView] Scaled Content Height: %f", scaledContentHeight);
+    NSLog(@"[createPDFFromWebView] PDF Page Width: %f", pdfPageWidth);
+    NSLog(@"[createPDFFromWebView] Content Width: %f", contentSize.width);
+    NSLog(@"[createPDFFromWebView] PDF Page Height: %f", pdfPageHeight);
+    NSLog(@"[createPDFFromWebView] Number of Pages: %ld", (long)numberOfPages);
 
-        // Draw the snapshot image into the scaled PDF page bounds
-        [snapshotImage drawInRect:CGRectMake(0, 0, pdfPageWidth, scaledHeight)];
+    // Set up the PDF page bounds
+    CGRect pdfPageBounds = CGRectMake(0, 0, pdfPageWidth, pdfPageHeight);
+
+    // Begin the PDF context
+    NSMutableData *pdfData = [NSMutableData data];
+    UIGraphicsBeginPDFContextToData(pdfData, pdfPageBounds, nil);
+
+    // Start processing pages
+    [self generatePageForWebView:webView atIndex:0 totalPages:numberOfPages scaleFactor:scaleFactor pdfPageWidth:pdfPageWidth pdfPageHeight:pdfPageHeight pdfPageBounds:pdfPageBounds padding:padding contentSize:contentSize outputPath:outputPath pdfData:pdfData command:command];
+}
+
+// Recursive function to generate pages in order
+- (void)generatePageForWebView:(WKWebView *)webView atIndex:(NSInteger)pageIndex totalPages:(NSInteger)totalPages scaleFactor:(CGFloat)scaleFactor pdfPageWidth:(CGFloat)pdfPageWidth pdfPageHeight:(CGFloat)pdfPageHeight pdfPageBounds:(CGRect)pdfPageBounds padding:(CGFloat)padding contentSize:(CGSize)contentSize outputPath:(NSString *)outputPath pdfData:(NSMutableData *)pdfData command:(CDVInvokedUrlCommand *)command {
+
+    if (pageIndex >= totalPages) {
+        // All pages have been processed, finish the PDF
         UIGraphicsEndPDFContext();
 
-        NSLog(@"[createPDFFromWebView] PDF creation complete. Writing to file: %@", outputPath);
-
         // Write the PDF to file
+        NSLog(@"[generatePageForWebView] PDF creation complete. Writing to file: %@", outputPath);
         BOOL success = [pdfData writeToFile:outputPath atomically:YES];
         if (success) {
-            NSLog(@"[createPDFFromWebView] PDF successfully written to file.");
+            NSLog(@"[generatePageForWebView] PDF successfully written to file.");
         } else {
-            NSLog(@"[createPDFFromWebView] Error writing PDF to file.");
+            NSLog(@"[generatePageForWebView] Error writing PDF to file.");
         }
 
-        // Send back as base64 or file path based on options
+        // Send back the result
         NSString *option = [command argumentAtIndex:4 withDefault:@"base64"];
         if ([option isEqualToString:@"base64"]) {
             NSString *base64PDF = [pdfData base64EncodedStringWithOptions:0];
             CDVPluginResult *result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:base64PDF];
             [self.commandDelegate sendPluginResult:result callbackId:[command callbackId]];
-            NSLog(@"[createPDFFromWebView] PDF sent as base64.");
+            NSLog(@"[generatePageForWebView] PDF sent as base64.");
         } else {
             CDVPluginResult *result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:outputPath];
             [self.commandDelegate sendPluginResult:result callbackId:[command callbackId]];
-            NSLog(@"[createPDFFromWebView] PDF path sent: %@", outputPath);
+            NSLog(@"[generatePageForWebView] PDF path sent: %@", outputPath);
         }
 
         self.hasPendingOperation = NO;
-        NSLog(@"[createPDFFromWebView] PDF generation process completed.");
+        NSLog(@"[generatePageForWebView] PDF generation process completed.");
+        return;
+    }
+
+    // Calculate the portion of the webView's content to draw on this page
+    CGRect snapshotRect = CGRectMake(0, pageIndex * (pdfPageHeight - 2 * padding) / scaleFactor, contentSize.width, (pdfPageHeight - 2 * padding) / scaleFactor);
+
+    // Log the snapshot rect for debugging
+    NSLog(@"[generatePageForWebView] Snapshot Rect for Page %ld: %@", (long)pageIndex, NSStringFromCGRect(snapshotRect));
+
+    WKSnapshotConfiguration *snapshotConfig = [[WKSnapshotConfiguration alloc] init];
+    snapshotConfig.rect = snapshotRect;
+
+    // Take a snapshot of the required content portion
+    [webView takeSnapshotWithConfiguration:snapshotConfig completionHandler:^(UIImage *snapshotImage, NSError *error) {
+        if (!error) {
+            // Create a new PDF page
+            UIGraphicsBeginPDFPageWithInfo(pdfPageBounds, nil);
+
+            // Calculate the scaled height of the image for this page
+            CGFloat imageHeight = snapshotImage.size.height * scaleFactor;
+
+            // Draw the snapshot image into the PDF page bounds with padding
+            [snapshotImage drawInRect:CGRectMake(padding, padding, pdfPageWidth - 2 * padding, imageHeight)];
+
+            // After the current page is processed, recursively process the next one
+            [self generatePageForWebView:webView atIndex:pageIndex + 1 totalPages:totalPages scaleFactor:scaleFactor pdfPageWidth:pdfPageWidth pdfPageHeight:pdfPageHeight pdfPageBounds:pdfPageBounds padding:padding contentSize:contentSize outputPath:outputPath pdfData:pdfData command:command];
+        } else {
+            NSLog(@"[generatePageForWebView] Error taking snapshot: %@", error.localizedDescription);
+        }
     }];
 }
 
